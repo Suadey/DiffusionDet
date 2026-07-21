@@ -185,121 +185,121 @@ class DiffusionDet(nn.Module):
 
     @torch.no_grad()
     def ddim_sample(
-    self,
-    batched_inputs,
-    backbone_feats,
-    images_whwh,
-    images,
-    clip_denoised=True,
-    do_postprocess=True,
-        ):
+        self,
+        batched_inputs,
+        backbone_feats,
+        images_whwh,
+        images,
+        clip_denoised=True,
+        do_postprocess=True,
+            ):
 
-    batch = images_whwh.shape[0]
-    shape = (batch, self.num_proposals, 4)
+        batch = images_whwh.shape[0]
+        shape = (batch, self.num_proposals, 4)
 
-    total_steps = self.num_timesteps
-    ddim_steps = self.sampling_timesteps
-    eta = self.ddim_sampling_eta
+        total_steps = self.num_timesteps
+        ddim_steps = self.sampling_timesteps
+        eta = self.ddim_sampling_eta
 
-    img = torch.randn(shape, device=self.device)
+        img = torch.randn(shape, device=self.device)
 
-    times = torch.linspace(
-        total_steps - 1,
-        0,
-        ddim_steps,
-        device=self.device
-    ).long()
+        times = torch.linspace(
+            total_steps - 1,
+            0,
+            ddim_steps,
+            device=self.device
+            ).long()
 
-    x_start = None
+        x_start = None
 
-    for i in range(ddim_steps):
+        for i in range(ddim_steps):
 
-        t = times[i]
+            t = times[i]
 
-        time_cond = torch.full(
-            (batch,),
-            t.item(),
-            device=self.device,
-            dtype=torch.long
-        )
-
-        self_cond = x_start if self.self_condition else None
-
-        preds, outputs_class, outputs_coord = self.model_predictions(
-            backbone_feats,
-            images_whwh,
-            img,
-            time_cond,
-            self_cond,
-            clip_x_start=clip_denoised,
-        )
-
-        pred_noise = preds.pred_noise
-        x_start = preds.pred_x_start
-
-        if i == ddim_steps - 1:
-            img = x_start
-            break
-
-        t_next = times[i + 1]
-
-        alpha = self.alphas_cumprod[t]
-        alpha_next = self.alphas_cumprod[t_next]
-
-        sigma = (
-            eta
-            * torch.sqrt((1.0 - alpha_next) / (1.0 - alpha))
-            * torch.sqrt(1.0 - alpha / alpha_next)
-        )
-
-        noise = torch.randn_like(img)
-
-        direction = torch.sqrt(
-            torch.clamp(
-                1.0 - alpha_next - sigma ** 2,
-                min=1e-8,
+            time_cond = torch.full(
+                (batch,),
+                t.item(),
+                device=self.device,
+                dtype=torch.long
             )
-        ) * pred_noise
 
-        img = (
-            torch.sqrt(alpha_next) * x_start
-            + direction
-            + sigma * noise
-        )
+            self_cond = x_start if self.self_condition else None
 
-    output = {
-        "pred_logits": outputs_class[-1],
-        "pred_boxes": outputs_coord[-1],
-    }
+            preds, outputs_class, outputs_coord = self.model_predictions(
+                backbone_feats,
+                images_whwh,
+                img,
+                time_cond,
+                self_cond,
+                clip_x_start=clip_denoised,
+            )
 
-    results = self.inference(
-        output["pred_logits"],
-        output["pred_boxes"],
-        images.image_sizes,
-    )
+            pred_noise = preds.pred_noise
+            x_start = preds.pred_x_start
 
-    if do_postprocess:
-        processed_results = []
+            if i == ddim_steps - 1:
+                img = x_start
+                break
 
-        for result, inp, image_size in zip(
-            results,
-            batched_inputs,
+            t_next = times[i + 1]
+
+            alpha = self.alphas_cumprod[t]
+            alpha_next = self.alphas_cumprod[t_next]
+
+            sigma = (
+                eta
+                * torch.sqrt((1.0 - alpha_next) / (1.0 - alpha))
+                * torch.sqrt(1.0 - alpha / alpha_next)
+            )
+
+            noise = torch.randn_like(img)
+
+            direction = torch.sqrt(
+                torch.clamp(
+                    1.0 - alpha_next - sigma ** 2,
+                    min=1e-8,
+                )
+            ) * pred_noise
+
+            img = (
+                torch.sqrt(alpha_next) * x_start
+                + direction
+                + sigma * noise
+            )
+
+        output = {
+            "pred_logits": outputs_class[-1],
+            "pred_boxes": outputs_coord[-1],
+        }
+
+        results = self.inference(
+            output["pred_logits"],
+            output["pred_boxes"],
             images.image_sizes,
-        ):
-            height = inp.get("height", image_size[0])
-            width = inp.get("width", image_size[1])
+        )
 
-            r = detector_postprocess(
-                result,
-                height,
-                width,
-            )
-
-            processed_results.append({"instances": r})
-
-        return processed_results
-
-    return results
+        if do_postprocess:
+            processed_results = []
+    
+            for result, inp, image_size in zip(
+                results,
+                batched_inputs,
+                images.image_sizes,
+            ):
+                height = inp.get("height", image_size[0])
+                width = inp.get("width", image_size[1])
+    
+                r = detector_postprocess(
+                    result,
+                    height,
+                    width,
+                )
+    
+                processed_results.append({"instances": r})
+    
+            return processed_results
+    
+        return results
 
     # @torch.no_grad()
     # def ddim_sample(self, batched_inputs, backbone_feats, images_whwh, images, clip_denoised=True, do_postprocess=True):
